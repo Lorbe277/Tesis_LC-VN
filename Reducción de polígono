@@ -1,0 +1,72 @@
+# Reducción del área del polígono de los embalses
+
+library(sf)
+install.packages("lwgeom")
+library(lwgeom)
+library(units)
+
+file.choose()
+setwd("C:\\.....")  # Agregar ruta donde se encuentra el shapefile
+# Leer shapefile
+embalse <- st_read("Frayle1.shp")
+
+# Definir los embalses a escalar
+embalses_a_escalar <- c("Frayle") #, "AguadaB", "Dique")
+
+embalses_filtrados <- embalse[embalse$Name %in% embalses_a_escalar, ]
+
+# Función para escalar un polígono manteniendo la forma y estructura
+reducir_area <- function(pol, area_reducir_m2) {
+  geom <- st_geometry(pol)[[1]]        # Extraer geometría sfg (POLYGON)
+  crs_actual <- st_crs(pol)
+  
+  area_actual <- st_area(st_sfc(geom, crs = crs_actual))
+  area_deseada <- area_actual - set_units(area_reducir_m2, "m^2")
+  
+  if (area_deseada <= set_units(0, "m^2")) {
+    warning(paste("El polígono", pol$Name, "no puede reducirse tanto. Se deja igual."))
+    return(geom)  # Devolver el polígono original (sfg)
+  }
+  
+  factor_escala <- sqrt(as.numeric(area_deseada / area_actual))
+  
+  centroide <- st_centroid(st_sfc(geom, crs = crs_actual))
+  centroide_coords <- st_coordinates(centroide)
+  
+  # Escalar cada anillo
+  lista_nueva <- lapply(geom, function(anillo) {
+    anillo[, 1:2] <- sweep(anillo[, 1:2], 2, centroide_coords, "-")
+    anillo[, 1:2] <- anillo[, 1:2] * factor_escala
+    anillo[, 1:2] <- sweep(anillo[, 1:2], 2, centroide_coords, "+")
+    return(anillo)
+  })
+  
+  nuevo_poly <- st_polygon(lista_nueva)  # Objeto sfg
+  return(nuevo_poly)
+}
+
+# Aplicar la reducción a cada polígono (en este caso 1 solo)
+geometrias_escala <- lapply(seq_len(nrow(embalses_filtrados)), function(i) {
+  reducir_area(embalses_filtrados[i, ], area_reducir_m2 = 2e4)  # Reducir 100,000 m² = 1 km²
+})
+
+# Reconstruir objeto sf con nuevas geometrías
+embalses_filtrados <- st_sf(
+  embalses_filtrados[, !(names(embalses_filtrados) == "geometry")],  # Eliminar columna geometry antigua
+  geometry = st_sfc(geometrias_escala, crs = st_crs(embalses_filtrados))
+)
+
+# Eliminar dimensión Z si existe
+embalses_filtrados <- st_zm(embalses_filtrados, drop = TRUE, what = "ZM")
+
+# Visualizar resultado
+plot(st_geometry(embalses_filtrados), main = "Embalses reducidos en 1 km²")
+plot(st_geometry(embalse), border = 'blue', lwd = 2)
+plot(st_geometry(embalses_filtrados), border = 'red', add = TRUE)
+
+# Guardar el shapefile resultante (usa ruta absoluta)
+st_write(
+  embalses_filtrados,
+  "C:/Users/....shp",  #Agregar ruta para guardar el nuevo shapefile
+  delete_dsn = TRUE
+)
