@@ -1,0 +1,338 @@
+// CODIGO PARA ANÁLISIS DE NDCI EN EMBALSES DEL SISTEMA CHILI REGULADO
+
+//=====================================================================
+// CÁLCULO DE NDWI Y NDCI MEDIANTE SIAC (HLS)
+// Sentinel-2 L1C - Corrección atmosférica SIAC
+// Polígonos reducidos por embalse
+//=====================================================================
+
+//=====================================================================
+// 1. CONFIGURACIÓN
+//=====================================================================
+// Seleccionar embalse:  'Dique', 'AguadaB', 'Frayle'
+var nombreEmbalse = 'AguadaB';
+
+// Punto para generar la serie temporal.
+var puntoAnalisis = 'A7';
+
+
+// Periodo de análisis
+var fechaInicio = '2020-01-01';
+var fechaFin    = '2024-12-31';
+
+
+// Fechas para visualización 
+var fechasViz = [
+"2022-10-26","2022-10-06"  // "2022-10-11"
+];
+
+//=====================================================================
+// 2. CARGA DE EMBALSES
+//=====================================================================
+// Agregar rutas asset del shapefile a analizar
+var embalses = {
+
+Dique: ee.FeatureCollection(
+'projects/instant-ascent-459021-u8/assets/Dique_Reducido'),
+
+AguadaB: ee.FeatureCollection(
+'projects/instant-ascent-459021-u8/assets/AguadaB_Reducido'),
+
+Frayle: ee.FeatureCollection(
+'projects/instant-ascent-459021-u8/assets/Frayle_Reducido')
+
+};
+
+
+//=====================================================================
+// 3. CARGA DE PUNTOS DE MUESTREO
+//=====================================================================
+// Agregar ruta asset de puntos a analizar
+var puntosEmbalse = {
+
+Dique: ee.FeatureCollection('projects/ee-lorbe27/assets/PD_F'),
+AguadaB: ee.FeatureCollection('projects/instant-ascent-459021-u8/assets/PA_F'),
+Frayle: ee.FeatureCollection('projects/instant-ascent-459021-u8/assets/PF_F')
+
+};
+
+//=====================================================================
+// 4. SELECCIÓN DEL EMBALSE
+//=====================================================================
+
+var embalse = embalses[nombreEmbalse];
+var puntos  = puntosEmbalse[nombreEmbalse];
+
+Map.centerObject(embalse,11);
+
+Map.addLayer(
+    embalse,
+    {},
+    'Embalse'
+);
+
+
+
+
+//=====================================================================
+// 5. DESCARGA DE IMÁGENES SENTINEL-2
+//=====================================================================
+//  Sentinel-2 L1C armonizado
+var s2_toa = ee.ImageCollection('COPERNICUS/S2_HARMONIZED')
+
+.filterDate(
+    fechaInicio,
+    fechaFin
+)
+
+.filterBounds(
+    embalse
+)
+
+.filter(
+    ee.Filter.lt(
+        'CLOUDY_PIXEL_PERCENTAGE',
+        20
+    )
+);
+
+
+//=====================================================================
+// 6. CORRECCIÓN ATMOSFÉRICA SIAC
+//=====================================================================
+// Importación módulo HLS
+var funcHLS = require('users/geeberra/Modules:HLS_Module_v2');
+
+var s2_boa = s2_toa.map(
+    funcHLS.SIAC_S2
+);
+
+//=====================================================================
+// 7. CÁLCULO DE NDWI Y NDCI
+//=====================================================================
+
+var series = s2_boa.map(function(img){
+    // NDWI
+        var ndwi = img.normalizedDifference(
+        ['B3','B8']
+    ).rename('NDWI');
+
+
+    // NDCI
+    var ndci = img.normalizedDifference(
+        ['B5','B4']
+    ).rename('NDCI');
+
+    // Combinar bandas
+    var indices = ndwi.addBands(ndci);
+
+    // Extraer valores sobre cada punto
+    return indices.reduceRegions({
+        collection:puntos,
+        reducer:ee.Reducer.first(),
+        scale:10
+    })
+
+    // Agregar metadatos
+    .map(function(f){
+        return f.set({
+            'system:time_start':
+                img.get('system:time_start'),
+            datetime_utc:
+                ee.Date(
+                    img.get('system:time_start')
+                ).format(
+                    'yyyy-MM-dd HH:mm:ss'
+                ),
+            hour_utc:
+                ee.Date(
+                    img.get('system:time_start')
+                ).get('hour'),
+            tile:
+                img.get('MGRS_TILE'),
+            orbit:
+                img.get(
+                    'SENSING_ORBIT_NUMBER'
+                ),
+
+            solarZenith:
+                img.get(
+                    'MEAN_SOLAR_ZENITH_ANGLE'
+                ),
+            cloud:
+                img.get(
+                    'CLOUDY_PIXEL_PERCENTAGE'
+                )
+        });
+    });
+})
+
+.flatten()
+.filter(
+    ee.Filter.notNull(
+        ['NDWI','NDCI']
+    )
+);
+
+
+//=====================================================================
+// 8. SERIE TEMPORAL DE NDCI
+//=====================================================================
+// Se genera la serie temporal del punto seleccionado
+/*
+var seriePunto = series.filter(
+    ee.Filter.eq('Name', puntoAnalisis)
+);
+
+print(
+    'Número de observaciones del punto:',
+    seriePunto.size()
+);
+
+var graficoNDCI = ui.Chart.feature.byFeature(
+        seriePunto,
+        'system:time_start',
+        ['NDCI']
+    )
+    .setChartType('LineChart')
+    .setOptions({
+        title:
+            'Serie temporal de NDCI - ' +
+            nombreEmbalse +
+            ' - ' +
+            puntoAnalisis,
+        hAxis:{
+            title:'Fecha'
+        },
+        vAxis:{
+            title:'NDCI'
+        },
+        lineWidth:2,
+        pointSize:5,
+        colors:['green'],
+        legend:{
+            position:'none'
+        }
+    });
+
+print(graficoNDCI);
+*/
+
+//=====================================================================
+// 9. PARÁMETROS DE VISUALIZACIÓN
+//=====================================================================
+
+var rgbParams = {
+    bands:['B4','B3','B2'],
+    min:0.0,
+    max:0.3,
+    gamma:1.2
+};
+
+
+var ndciParams = {
+    min:-0.5,
+    max:0.5,
+    palette:[
+
+        '08306b',
+        '2171b5',
+        '6baed6',
+        'ffffbf',
+        'fdae61',
+        'f46d43',
+        'a50026'
+    ]
+};
+
+
+
+//=====================================================================
+// 10. FUNCIÓN PARA VISUALIZAR UNA FECHA
+//=====================================================================
+// Para cada fecha se muestran:
+// • Imagen RGB corregida mediante SIAC.
+// • Imagen NDCI.
+
+function visualizarFecha(fecha){
+    var img = s2_boa
+        .filterDate(
+            ee.Date(fecha),
+            ee.Date(fecha).advance(1,'day')
+        )
+        .first();
+    print(
+        'Imagen disponible (' + fecha + '):',
+        img
+    );
+
+
+    Map.addLayer(
+        img.clip(embalse),
+        rgbParams,
+        'RGB SIAC - ' + fecha
+    );
+
+
+    var ndci = img.normalizedDifference(
+        ['B5','B4']
+    );
+
+
+    Map.addLayer(
+        ndci.clip(embalse),
+        ndciParams,
+        'NDCI - ' + fecha
+    );
+
+}
+
+
+//=====================================================================
+// 11. VISUALIZAR LAS FECHAS DEFINIDAS
+//=====================================================================
+
+fechasViz.forEach(function(fecha){
+    visualizarFecha(fecha);
+});
+
+
+Map.addLayer(
+    puntos,
+    {color:'black'},
+    'Puntos de muestreo'
+);
+
+
+/*
+// Preparar exportación
+var seriesExport = series.map(function(f){
+    var coords = f.geometry().coordinates();
+    var fecha = ee.Date(f.get('system:time_start'))
+        .format('dd/MM/yyyy');
+    return f.set({
+        Embalse: nombreEmbalse,
+        Fecha: fecha,
+        UTM_E: coords.get(0),
+        UTM_N: coords.get(1)
+    });
+});
+
+// Exportar CSV
+Export.table.toDrive({
+    collection: seriesExport,
+    description:'Export_'+nombreEmbalse+'_SIAC_HLS',
+    fileFormat:'CSV',
+    selectors:[
+        'Embalse',
+        'Name',
+        'Fecha',
+        'tile',
+        'orbit',
+        'datetime_utc',
+        'hour_utc',
+        'NDWI',
+        'NDCI'
+    ]
+});
+*/
