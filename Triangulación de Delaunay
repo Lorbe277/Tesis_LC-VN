@@ -1,0 +1,62 @@
+# Creación de puntos con triangulación de Delaunay 
+
+install.packages("patchwork")
+file.choose()
+setwd("Ruta de Shapefile")  #Agregar la ruta donde se encuentran los shp
+# 1. Leer shapefile con varios polígonos
+embalses <- st_read("AguadaBFF_reducidos_0.1km2.shp")
+
+embalses <- embalses %>%
+  st_transform(32719) %>%  # EPSG 32719: UTM zona 19S (para cálculo de áreas en Perú)
+  mutate(area_km2 = st_area(geometry) / 10^6)
+
+# Establecer densidad de puntos por km²
+densidad <- 3  # Puedes ajustar este número
+
+# Generar y almacenar resultados
+resultados <- lapply(1:nrow(embalses), function(i) {
+  embalse <- embalses[i, ]
+  nombre <- as.character(embalse$Name)  # o cambia por tu campo con nombres
+  
+  # Calcular cantidad de puntos
+  n_puntos <- ceiling(as.numeric(embalse$area_km2) * densidad)
+  
+  # Generar puntos aleatorios
+  puntos <- st_sample(embalse, size = n_puntos, type = "random")
+  coords <- st_coordinates(puntos)
+  
+  # Triangulación de Delaunay
+  if (nrow(coords) >= 3) {
+    triangulos <- delaunayn(coords)
+    lineas <- lapply(1:nrow(triangulos), function(j) {
+      tri_coords <- coords[triangulos[j, c(1,2,3,1)], ]  # cerrar triángulo
+      st_linestring(tri_coords)
+    })
+    lineas_sf <- st_sfc(lineas, crs = st_crs(embalses))
+  } else {
+    lineas_sf <- st_sfc(crs = st_crs(embalses))
+  }
+  
+  list(nombre = nombre,
+       poligono = embalse %>% st_transform(4326),
+       puntos = st_as_sf(data.frame(coords), coords = c("X", "Y"), crs = st_crs(embalses)),
+       triangulos = st_sf(geometry = lineas_sf %>% st_transform(4326)))
+})
+
+# Visualización por embalse
+plots <- lapply(resultados, function(res) {
+  ggplot() +
+    geom_sf(data = res$poligono, fill = NA, color = "black") +
+    geom_sf(data = res$triangulos, color = "blue", linewidth = 0.3) +
+    geom_sf(data = res$puntos, color = "red", size = 0.5) +
+    ggtitle(paste("Triangulación de Delaunay - Embalse:", res$nombre)) +
+    theme_minimal()
+})
+
+
+print(plots)
+
+
+# Mostrar todos los plots
+library(patchwork)
+wrap_plots(plots, ncol = 2)
