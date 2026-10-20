@@ -1,0 +1,91 @@
+## DOMINANCIA POR EMBALSE
+# =========================
+# LIBRERÍAS
+# =========================
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# =========================
+# CARGAR DATOS
+# =========================
+ruta <- "C:/Users/Lorena Belen/OneDrive - upch.pe/CURSOS UNIVERSIDAD/TESIS/Export_GEE/"
+dist <- read_excel(paste0(ruta, "Analisis_final.xlsx"), sheet = "Distribución")
+
+# =========================
+# LIMPIAR + NORMALIZAR TAXONOMÍA
+# =========================
+dist_3E <- dist %>%
+  select(EMBALSE, `PUNTOS DE MUESTREO`, FITOPLANCTON, `Datos (cel/mL)`, FECHAS) %>%
+  filter(`PUNTOS DE MUESTREO` == "3E") %>%
+  mutate(
+    FECHAS = as.Date(FECHAS, format = "%d/%m/%Y"),
+    abund = as.numeric(`Datos (cel/mL)`),
+    
+    #  NORMALIZACIÓN
+    FITOPLANCTON = case_when(
+      FITOPLANCTON %in% c("Diatomeas", "Bacillariophyceae") ~ "Diatomeas",
+      FITOPLANCTON %in% c("Chlorophyceae", "Chlorophyta") ~ "Chlorophyta",
+      TRUE ~ FITOPLANCTON
+    )
+  ) %>%
+  filter(!is.na(FECHAS), !is.na(abund))
+
+# =========================
+# AGRUPAR
+# =========================
+dist_sum <- dist_3E %>%
+  group_by(EMBALSE, FECHAS, FITOPLANCTON) %>%
+  summarise(abund = sum(abund), .groups = "drop")
+
+# =========================
+#  TOP 3 POR EMBALSE
+# =========================
+top_embalse <- dist_sum %>%
+  group_by(EMBALSE, FITOPLANCTON) %>%
+  summarise(total = sum(abund), .groups = "drop") %>%
+  group_by(EMBALSE) %>%
+  slice_max(order_by = total, n = 3) %>%
+  ungroup()
+
+# =========================
+# CREAR "OTROS"
+# =========================
+dist_final <- dist_sum %>%
+  semi_join(top_embalse, by = c("EMBALSE", "FITOPLANCTON")) %>%
+  bind_rows(
+    dist_sum %>%
+      anti_join(top_embalse, by = c("EMBALSE", "FITOPLANCTON")) %>%
+      mutate(FITOPLANCTON = "Otros")
+  ) %>%
+  group_by(EMBALSE, FECHAS, FITOPLANCTON) %>%
+  summarise(abund = sum(abund), .groups = "drop")
+
+# =========================
+# COLORES
+# =========================
+colores <- c(
+  "Cyanobacteria" = "#FF0000",
+  "Diatomeas" = "#0066FF",
+  "Chlorophyta" = "#00CC00",
+  "Otros" = "#BFBFBF"
+)
+
+colores <- colores[names(colores) %in% unique(dist_final$FITOPLANCTON)]
+
+# =========================
+# GRÁFICO FINAL
+# =========================
+ggplot(dist_final, aes(x = FECHAS, y = abund, fill = FITOPLANCTON)) +
+  geom_col(width = 20) +
+  facet_wrap(~EMBALSE, scales = "free_y") +
+  scale_fill_manual(values = colores) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Dominancia fitoplanctónica",
+       x = "Año",
+       y = "Abundancia (cel/mL)")
+
+top_embalse
