@@ -1,0 +1,56 @@
+# MATRIZ DE CORRELACIÓN ENTRE VALORES NDCI
+# MAPA DE CALOR
+
+library(tidyverse)
+library(ggcorrplot)
+
+# Embalse - cambiar de acuerdo al embalse a analizar
+embalse <- "Frayle"
+ruta <- paste0("C:\\\\Users\\\\Lorena Belen\\\\OneDrive - upch.pe\\\\CURSOS UNIVERSIDAD\\\\TESIS\\\\Export_GEE\\\\Export_", embalse, ".csv")
+
+# Orden forzado
+#orden_puntos <- c("3A","A1","A2","A3","A4","A5","A6","A7","A8","A9","A10")
+#orden_puntos <- c("D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "p")
+orden_puntos <- c("2F","3F","F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "p")
+
+
+# Cargar y procesar
+df <- read.csv(ruta) %>%
+  mutate(Fecha = as.Date(Fecha, format = "%d/%m/%Y")) %>%
+  filter(Name %in% orden_puntos) %>%
+  group_by(Name, Fecha) %>%
+  summarise(NDCI = mean(NDCI, na.rm = TRUE), .groups = "drop")
+
+# Pivot
+df_wide <- df %>%
+  pivot_wider(names_from = Name, values_from = NDCI) %>%
+  arrange(Fecha)
+
+# Completar columnas faltantes
+faltantes <- setdiff(orden_puntos, names(df_wide))
+if (length(faltantes) > 0) df_wide[faltantes] <- NA
+
+# Reordenar y convertir a numérico
+matriz_ndci <- df_wide %>%
+  select(all_of(orden_puntos)) %>%
+  mutate(across(everything(), as.numeric))
+
+# Calcular matriz de correlación completa
+cor_ndci <- matrix(NA, nrow = length(orden_puntos), ncol = length(orden_puntos),
+                   dimnames = list(orden_puntos, orden_puntos))
+for (i in orden_puntos) {
+  for (j in orden_puntos) {
+    cor_ndci[i, j] <- suppressWarnings(cor(matriz_ndci[[i]], matriz_ndci[[j]], use = "pairwise.complete.obs"))
+  }
+}
+
+# Graficar con título
+ggcorrplot(cor_ndci,
+           hc.order = FALSE,
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           show.diag = TRUE,
+           colors = c("blue", "white", "red")) +
+  labs(title = paste("Correlación de NDCI entre puntos en", embalse)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14))
