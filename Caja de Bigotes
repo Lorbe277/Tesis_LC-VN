@@ -1,0 +1,47 @@
+#Caja de Bigotes
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+setwd("C:\\Users\\navar\\OneDrive\\Documentos\\Tesis\\Resultados\\R_Final")
+
+# Leer archivo Excel
+df <- read_excel("Export_Frayle_PN.xlsx") #Cambiar deacuerdo al embalse 
+
+# Asegurarse de que la columna Fecha esté como tipo Date
+df$Fecha <- dmy(df$Fecha)
+
+# Filtrar los años 2020 a 2024 y eliminar valores faltantes
+df_filtrado <- df %>%
+  filter(year(Fecha) >= 2020 & year(Fecha) <= 2024) %>%
+  filter(!is.na(Name), !is.na(NDCI))
+
+# Crear caja de bigotes por punto
+ggplot(df_filtrado, aes(x = Name, y = NDCI)) +
+  geom_boxplot(
+    fill = "#33a02c",
+    color = "black",
+    outlier.color = "black",
+    outlier.shape = 16,
+    outlier.size = 2
+  ) +
+  labs(
+    title = "Distribución del NDCI por punto del embalse El Frayle (2020–2024)",
+    x = "Punto",
+    y = "NDCI"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12),
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 10
+    ),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(
+      size = 14,
+      hjust = 0.5
+    )
+  )
