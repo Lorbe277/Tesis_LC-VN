@@ -1,0 +1,132 @@
+# Cargar las librerías
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+# Leer Excel
+setwd("C:\\Users\\navar\\OneDrive\\Documentos\\Tesis\\Resultados\\R_Final")
+# Leer archivo Excel
+datos <- read_excel("Export_Dique_PN.xlsx")  
+
+# Convertir la fecha al formato correcto (día/mes/año)
+datos <- datos %>%
+  mutate(
+    Fecha = dmy(Fecha),          # ← AQUÍ convertimos usando día/mes/año
+    Name = as.factor(Name)
+  ) %>%
+  filter(year(Fecha) >= 2020 & year(Fecha) <= 2024)
+
+# Verificamos que sí hay datos después del filtro
+print(nrow(datos))  # debería dar un número mayor a 0
+print(range(datos$Fecha))
+
+# Calcular promedio diario del NDCI
+promedio_diario <- datos %>%
+  group_by(Fecha) %>%
+  summarise(Promedio_NDCI = mean(NDCI, na.rm = TRUE), .groups = "drop")
+
+
+meses <- seq(as.Date("2020-01-01"), as.Date("2024-12-01"), by = "1 month")
+
+# Crear vector con las fechas de inicio de cada año
+# Crear fechas divisorias y etiquetas
+fechas_divisorias <- as.Date(c("2020-01-01","2021-01-01", "2022-01-01", "2023-01-01", "2024-01-01"))
+etiquetas_anios <- c("2020","2021", "2022", "2023", "2024")
+
+# Crear un data.frame para anotar los textos
+anotaciones <- data.frame(
+  x = fechas_divisorias,
+  y = max(datos$NDCI, na.rm = TRUE) + 0.10,  # posición arriba del gráfico
+  label = etiquetas_anios
+)
+
+ggplot() +
+  geom_line(data = datos, aes(x = Fecha, y = NDCI, group = Name, color = Name),
+            alpha = 0.4, size = 0.7) +
+  geom_line(data = promedio_diario, aes(x = Fecha, y = Promedio_NDCI),
+            color = "black", size = 0.8) + 
+  scale_color_discrete(name = "Puntos de Análisis") +
+  
+  # Líneas divisorias por año
+  geom_vline(xintercept = as.numeric(fechas_divisorias),
+             linetype = "dashed", color = "grey30", size = 0.6) +
+  
+  # Etiquetas encima de cada línea
+  geom_text(data = anotaciones, aes(x = x, y = y, label = label),
+            angle = 90, size = 3.5, color = "grey20", nudge_x = 20) +
+  
+  # Eje X con meses
+  scale_x_date(
+    breaks = meses,
+    labels = format(meses, "%b"),
+    limits = as.Date(c("2020-01-01", "2024-12-31"))
+  ) +
+  coord_cartesian(xlim = as.Date(c("2020-01-01", "2024-12-31"))) + 
+  
+  labs(
+    title = "Serie Temporal de NDCI del embalse Dique de los Españoles por Punto (2020–2024)",
+    x = "Mes", y = "NDCI"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),  # tamaño eje X
+    legend.text = element_text(size = 11),  # tamaño texto de leyenda
+    legend.title = element_text(size = 12, face = "bold")  # título leyenda
+  )
+
+
+###
+# Suponiendo que tus datos ya están filtrados del 2020 al 2024
+
+p_anim <- ggplot() +
+  geom_line(data = datos, aes(x = Fecha, y = NDCI, group = Name, color = Name),
+            size = 1) +
+  
+  # Línea del promedio (constante en toda la animación)
+  geom_line(data = promedio_diario, aes(x = Fecha, y = Promedio_NDCI),
+            color = "black", size = 1.2) +
+  
+  scale_color_discrete(name = "Puntos de Análisis") +
+  
+  # Líneas divisorias por año
+  geom_vline(xintercept = as.numeric(fechas_divisorias),
+             linetype = "dashed", color = "grey30", size = 0.6) +
+  
+  # Etiquetas de los años
+  geom_text(data = anotaciones, aes(x = x, y = y, label = label),
+            angle = 90, size = 3.5, color = "grey20", nudge_x = 20) +
+  
+  scale_x_date(
+    breaks = meses,
+    labels = format(meses, "%b"),
+    limits = as.Date(c("2020-01-01", "2024-12-31"))
+  ) +
+  coord_cartesian(xlim = as.Date(c("2020-01-01", "2024-12-31"))) +
+  
+  labs(
+    title = "Serie temporal de NDCI - Punto: {closest_state}",
+    x = "Mes", y = "NDCI"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  
+  # 🎬 Animación por punto
+  transition_states(Name,
+                    transition_length = 2,
+                    state_length = 1) +
+  enter_fade() +
+  exit_fade()
+
+# Visualizar animación
+animate(p_anim, nframes = length(unique(datos$Name)) * 15, fps = 8,
+        width = 1000, height = 500)
+
+# Para guardar:
+animate(
+  p_anim,
+  nframes = length(unique(datos$Name)) * 15,  # ajusta si quieres más o menos fluidez
+  fps = 8,
+  width = 1000,
+  height = 500,
+  renderer = gifski_renderer("lineas_por_punto.gif")  # <- nombre del archivo de salida
+)
